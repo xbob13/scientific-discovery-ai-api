@@ -1,9 +1,3 @@
 fastapi
 uvicorn[standard]
-transformers
-torch
-tokenizers
-huggingface-hub
 pydantic
-python-multipart
-numpy
