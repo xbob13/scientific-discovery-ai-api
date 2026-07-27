@@ -14,9 +14,8 @@ class OpenAlexAdapter(SourceAdapter):
         params = {"search": query, "per-page": limit, "mailto": settings.crossref_mailto}
         if settings.openalex_api_key:
             params["api_key"] = settings.openalex_api_key.get_secret_value()
-        response = await self.client.get(f"{self.base_url}/works", params=params)
-        response.raise_for_status()
-        return [self._parse(item) for item in response.json().get("results", [])]
+        payload = await self.get_json(f"{self.base_url}/works", params=params)
+        return [self._parse(item) for item in payload.get("results", [])]
 
     def _parse(self, item: dict) -> SourceRecord:
         doi = normalize_doi(item.get("doi"))
