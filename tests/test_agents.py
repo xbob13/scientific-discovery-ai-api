@@ -1,4 +1,5 @@
 from research_lab.agents import LiteratureCartographer, ResearchDocument
+from research_lab.models import JobRun
 
 
 def test_cartographer_proposes_explainable_deterministic_connection():
@@ -21,3 +22,17 @@ def test_cartographer_does_not_invent_connection_without_shared_signal():
         ResearchDocument("b", "Protein assay", "Fluorescent antibody.", True),
     ]
     assert LiteratureCartographer().propose(documents) == []
+
+
+def test_cartographer_rejects_generic_academic_prose():
+    documents = [
+        ResearchDocument("a", "First review", "However, studies show significant progress.", True),
+        ResearchDocument("b", "Second review", "Studies therefore show significant progress.", True),
+    ]
+    assert LiteratureCartographer().propose(documents) == []
+
+
+def test_new_job_attempt_counter_can_be_incremented_before_flush():
+    job = JobRun(job_type="cycle", idempotency_key="test", input={})
+    job.attempts = (job.attempts or 0) + 1
+    assert job.attempts == 1

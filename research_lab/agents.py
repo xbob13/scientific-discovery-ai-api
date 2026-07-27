@@ -10,32 +10,107 @@ from .models import ConnectionCandidate, Work, WorkVersion
 
 STOP_WORDS = {
     "about",
+    "according",
     "after",
     "also",
     "among",
+    "analysis",
+    "approach",
     "based",
     "been",
     "between",
     "both",
+    "comprehensively",
+    "conclusion",
+    "considered",
+    "current",
+    "different",
+    "discussed",
+    "finally",
+    "focus",
     "from",
     "have",
+    "however",
+    "identified",
+    "including",
+    "insights",
+    "intends",
     "into",
+    "investigated",
+    "material",
+    "materials",
+    "method",
+    "methods",
     "more",
     "most",
+    "notable",
+    "objects",
     "other",
     "over",
+    "paper",
+    "performance",
+    "perspective",
+    "possible",
+    "principles",
+    "process",
+    "progress",
+    "properties",
+    "proposed",
+    "recent",
+    "research",
+    "results",
+    "review",
     "show",
+    "shown",
+    "significant",
+    "some",
+    "state",
+    "studies",
+    "study",
     "such",
+    "systematic",
     "than",
     "that",
     "their",
+    "therefore",
     "these",
     "this",
     "through",
+    "various",
     "using",
     "were",
     "which",
     "with",
+}
+
+MECHANISM_TERMS = {
+    "adsorption",
+    "battery",
+    "binding",
+    "catalysis",
+    "catalyst",
+    "conductivity",
+    "corrosion",
+    "desalination",
+    "diffusion",
+    "electrode",
+    "electrolysis",
+    "energy",
+    "filtration",
+    "graphene",
+    "harvesting",
+    "membrane",
+    "metamaterial",
+    "photovoltaic",
+    "polymer",
+    "porosity",
+    "recycling",
+    "sensor",
+    "sensors",
+    "sorption",
+    "thermal",
+    "wastewater",
+    "water",
 }
 
 
@@ -78,14 +153,18 @@ class LiteratureCartographer:
         for index, left in enumerate(documents):
             for right in documents[index + 1 :]:
                 shared = document_terms[left.work_id] & document_terms[right.work_id]
-                if not shared:
+                mechanism_shared = shared & MECHANISM_TERMS
+                if not mechanism_shared:
                     continue
                 ranked = sorted(
                     shared,
                     key=lambda term: (math.log((len(documents) + 1) / (frequency[term] + 1)), term),
                     reverse=True,
                 )
-                bridge = tuple(ranked[:5])
+                bridge = tuple(
+                    sorted(mechanism_shared, key=lambda term: ranked.index(term))[:3]
+                    + [term for term in ranked if term not in mechanism_shared][:2]
+                )
                 score = sum(math.log((len(documents) + 1) / (frequency[t] + 1)) for t in bridge)
                 proposals.append(ProposedConnection(left.work_id, right.work_id, bridge, round(score, 6)))
         return sorted(proposals, key=lambda item: (-item.score, item.left_id, item.right_id))[:limit]

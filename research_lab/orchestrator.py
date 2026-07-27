@@ -48,7 +48,7 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
     session.add(job)
     job.status = "running"
     job.started_at = datetime.now(UTC)
-    job.attempts += 1
+    job.attempts = (job.attempts or 0) + 1
     session.commit()
 
     output = {
