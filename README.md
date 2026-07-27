@@ -29,10 +29,11 @@ The lab runs as bounded research cycles rather than a collection of free-running
 5. records assumptions, falsifiable predictions, validation methods, and rejection criteria; and
 6. emits an inspectable JSON artifact.
 
-GitHub Actions is the initial zero-cost execution environment. The workflow is fail-closed: scheduled execution remains
-blocked until the repository variable `RESEARCH_KILL_SWITCH=false` and `RESEARCH_QUESTION` are deliberately configured.
-The workflow uses a concurrency lock, a 20-minute ceiling, least-privilege read access, cached SQLite state, and retained
-run artifacts. It does not require Base44.
+GitHub Actions is the initial zero-cost execution environment. It runs at minutes 7 and 37 of each hour, rotating through
+an engineering, materials, energy, water, sensors, and manufacturing agenda. This cadence is designed to remain near the
+2,000-minute monthly allowance of a private GitHub Free repository. The workflow is fail-closed until the repository
+variable `RESEARCH_KILL_SWITCH=false` is deliberately configured. It uses a concurrency lock, a 20-minute ceiling,
+least-privilege read access, cached SQLite state, and retained run artifacts. It does not require Base44.
 
 Run a cycle locally with:
 

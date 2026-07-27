@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .adapters import ADAPTERS
+from .agenda import half_hour_window
 from .agents import LiteratureCartographer, load_documents, persist_connections
 from .canonical import store_record
 from .config import get_settings
@@ -21,7 +22,7 @@ class ResearchCycle:
     sources: tuple[str, ...] = ("openalex", "crossref")
     limit_per_source: int = 10
     connection_limit: int = 20
-    cycle_window: str = field(default_factory=lambda: datetime.now(UTC).date().isoformat())
+    cycle_window: str = field(default_factory=half_hour_window)
 
     @property
     def key(self) -> str:
