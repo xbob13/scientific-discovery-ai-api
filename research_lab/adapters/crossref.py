@@ -14,11 +14,10 @@ class CrossrefAdapter(SourceAdapter):
     async def harvest(self, query: str, limit: int) -> list[SourceRecord]:
         settings = get_settings()
         headers = {"User-Agent": f"PattersonResearchLabs/0.1 (mailto:{settings.crossref_mailto})"}
-        response = await self.client.get(
+        payload = await self.get_json(
             f"{self.base_url}/works", params={"query": query, "rows": limit}, headers=headers
         )
-        response.raise_for_status()
-        return [self._parse(item) for item in response.json()["message"].get("items", [])]
+        return [self._parse(item) for item in payload["message"].get("items", [])]
 
     def _parse(self, item: dict) -> SourceRecord:
         authors = [
