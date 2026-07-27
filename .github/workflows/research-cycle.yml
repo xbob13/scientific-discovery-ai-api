@@ -8,7 +8,7 @@ on:
         required: true
         type: string
   schedule:
-    - cron: "17 6 * * *"
+    - cron: "7,37 * * * *"
 
 concurrency:
   group: autonomous-research-cycle
@@ -25,9 +25,7 @@ jobs:
       DATABASE_URL: sqlite:///./research_lab.db
       BACKEND_SERVICE_TOKEN: ${{ secrets.BACKEND_SERVICE_TOKEN }}
       RESEARCH_KILL_SWITCH: ${{ vars.RESEARCH_KILL_SWITCH || 'true' }}
-      RESEARCH_QUESTION: >-
-        ${{ inputs.question || vars.RESEARCH_QUESTION ||
-        'cross-domain materials and energy research for sensors, water systems, manufacturing, and efficiency' }}
+      RESEARCH_QUESTION: ${{ inputs.question || vars.RESEARCH_QUESTION }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,10 +42,9 @@ jobs:
       - name: Refuse an unconfigured run
         shell: bash
         run: |
-          test -n "$RESEARCH_QUESTION"
           test "$RESEARCH_KILL_SWITCH" = "false"
       - name: Run bounded cycle
-        run: python -m scripts.run_research_cycle --question "$RESEARCH_QUESTION"
+        run: python -m scripts.run_research_cycle
       - name: Save research state
         if: always()
         uses: actions/cache/save@v4
