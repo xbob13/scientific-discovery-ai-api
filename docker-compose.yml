@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: research
+      POSTGRES_USER: research
+      POSTGRES_PASSWORD: research
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U research"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  api:
+    build: .
+    ports: ["10000:10000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://research:research@db:5432/research
+      BACKEND_SERVICE_TOKEN: local-development-token
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:
