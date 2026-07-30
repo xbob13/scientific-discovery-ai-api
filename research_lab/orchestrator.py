@@ -12,6 +12,7 @@ from .adapters import ADAPTERS
 from .agenda import half_hour_window
 from .agents import LiteratureCartographer, load_documents, persist_connections
 from .canonical import store_record
+from .clients import distribute_cycle
 from .config import get_settings
 from .models import JobRun, Source
 from .reports import candidate_report
@@ -20,7 +21,7 @@ from .reports import candidate_report
 @dataclass(frozen=True)
 class ResearchCycle:
     question: str
-    sources: tuple[str, ...] = ("openalex", "crossref")
+    sources: tuple[str, ...] = ("openalex", "crossref", "datacite")
     limit_per_source: int = 10
     connection_limit: int = 20
     cycle_window: str = field(default_factory=half_hour_window)
@@ -67,15 +68,17 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         for source_name in cycle.sources:
             try:
-                records = await ADAPTERS[source_name](client).harvest(
-                    cycle.question, cycle.limit_per_source
-                )
+                adapter = ADAPTERS[source_name](client)
+                records = await adapter.harvest(cycle.question, cycle.limit_per_source)
                 source_new = 0
                 for record in records:
                     work, created = store_record(session, record)
                     harvested_work_ids.add(work.id)
                     source_new += int(created)
                 source = session.scalar(select(Source).where(Source.name == source_name))
+                if source is None:
+                    source = Source(name=source_name, base_url=adapter.base_url)
+                    session.add(source)
                 source.last_success_at = datetime.now(UTC)
                 source.last_error = None
                 session.commit()
@@ -83,7 +86,10 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
                 output["new_versions"] += source_new
             except Exception as exc:
                 session.rollback()
-                output["sources"][source_name] = {"error": type(exc).__name__}
+                output["sources"][source_name] = {
+                    "error": type(exc).__name__,
+                    "detail": str(exc)[:300],
+                }
 
     documents = load_documents(session)
     proposals = LiteratureCartographer().propose(
@@ -95,6 +101,7 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
     output["connections_created"] = len(assessed_ids)
     output["candidates"] = candidate_report(session, assessed_ids)
     output["completed_at"] = datetime.now(UTC).isoformat()
+    output["client_briefs_published"] = distribute_cycle(session, cycle.key, output)
     complete = all("error" not in value for value in output["sources"].values())
     job.status = "succeeded" if complete else "partial"
     job.output = output

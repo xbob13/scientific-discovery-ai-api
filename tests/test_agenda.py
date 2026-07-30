@@ -1,6 +1,11 @@
 from datetime import UTC, datetime
 
-from research_lab.agenda import RESEARCH_AGENDA, half_hour_window, scheduled_question
+from research_lab.agenda import (
+    RESEARCH_AGENDA,
+    half_hour_window,
+    scheduled_client_question,
+    scheduled_question,
+)
 
 
 def test_half_hour_window_is_stable_and_bounded():
@@ -15,3 +20,10 @@ def test_agenda_rotates_each_half_hour_and_wraps():
     assert scheduled_question(start) != scheduled_question(next_slot)
     assert scheduled_question(start) == scheduled_question(wrapped)
     assert scheduled_question(start) in RESEARCH_AGENDA
+
+
+def test_active_client_questions_take_priority():
+    instant = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
+    questions = ["client membrane objective", "client alloy objective"]
+    assert scheduled_client_question(questions, instant) in questions
+    assert scheduled_client_question([], instant) == scheduled_question(instant)

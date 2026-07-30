@@ -22,3 +22,15 @@ def scheduled_question(now: datetime | None = None) -> str:
     current = (now or datetime.now(UTC)).astimezone(UTC)
     slot = int(current.timestamp() // 1800)
     return RESEARCH_AGENDA[slot % len(RESEARCH_AGENDA)]
+
+
+def scheduled_client_question(
+    client_questions: list[str],
+    now: datetime | None = None,
+) -> str:
+    """Prefer active client objectives while retaining a general lab fallback."""
+    if not client_questions:
+        return scheduled_question(now)
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    slot = int(current.timestamp() // 1800)
+    return client_questions[slot % len(client_questions)]

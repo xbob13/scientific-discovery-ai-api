@@ -45,3 +45,51 @@ The connection agent uses deterministic information-retrieval signals. Every can
 review-priority score, source evidence, falsifiable prediction, validation method, prior-art query, corroboration state,
 limitations, and rejection criteria. A proposed connection is explicitly not a scientific conclusion and cannot promote
 itself without corroborating evidence. Authenticated clients can inspect ranked assessments at `GET /v1/findings`.
+
+## Materials intelligence platform
+
+The backend is deliberately split into two planes:
+
+1. the private lab plane retains canonical source snapshots, assessments, provenance, dataset governance, and the complete
+   cross-client knowledge base;
+2. isolated client workspaces receive only briefs matching their active research topics through
+   `GET /v1/client-portal/{slug}/briefs`.
+
+Client portal tokens are stored only as SHA-256 digests. Operational creation and configuration remain protected by the
+backend service token. A research cycle prioritizes active client questions, falls back to the general lab agenda when
+there are no clients, and publishes an idempotent brief only when topic keywords match the evidence.
+
+Create a workspace and topic:
+
+```bash
+curl -X POST "$API/v1/client-workspaces" \
+  -H "Authorization: Bearer $BACKEND_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Example Materials Co","slug":"example-materials","portal_token":"replace-with-32+-random-characters"}'
+
+curl -X POST "$API/v1/client-workspaces/<workspace-id>/topics" \
+  -H "Authorization: Bearer $BACKEND_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Membrane fouling","research_question":"Identify scalable hollow-fiber membrane treatments that reduce irreversible fouling without sacrificing permeability.","keywords":["membrane","fouling","permeability","hollow fiber"]}'
+```
+
+## Governed data federation
+
+`python -m scripts.sync_dataset_registry` seeds the core catalog and discovers live OPTIMADE providers. The scheduled
+workflow refreshes this registry before research. The registry records access tier, capabilities, licensing caveats, and
+redistribution policy so that public metadata is not confused with licensed full text or proprietary property data.
+
+Initial federation:
+
+- OpenAlex and Crossref: scholarly literature and provenance;
+- DataCite: experimental datasets and associated DOI metadata;
+- OPTIMADE: normalized discovery across Materials Project, NOMAD, OQMD, JARVIS, AFLOW, Materials Cloud,
+  Crystallography Open Database, and other providers;
+- NIST Materials Data Repository: experimental and reference materials data;
+- PubChem: structures, identifiers, properties, hazards, and chemistry links;
+- DOE OSTI: energy and materials reports, software, and datasets;
+- USPTO PatentsView: patent, inventor, assignee, and citation intelligence.
+
+The platform stores provider metadata by default. Payload ingestion is enabled only when provider and record-level terms
+permit it. Licensed sources such as commercial standards, handbooks, full-text journals, CSD/ICSD, and commercial patent
+analytics require separate customer-funded agreements and must not be scraped into the shared lab.

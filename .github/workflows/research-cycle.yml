@@ -43,6 +43,8 @@ jobs:
         shell: bash
         run: |
           test "$RESEARCH_KILL_SWITCH" = "false"
+      - name: Refresh governed materials dataset registry
+        run: python -m scripts.sync_dataset_registry
       - name: Run bounded cycle
         run: python -m scripts.run_research_cycle
       - name: Save research state

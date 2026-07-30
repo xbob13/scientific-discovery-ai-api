@@ -3,19 +3,36 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .adapters import ADAPTERS
 from .auth import require_service_token
 from .canonical import store_record
+from .clients import hash_portal_token, verify_portal_token
 from .compute import run_sheet_resistance
 from .config import get_settings
+from .datasets import discover_optimade_providers, seed_dataset_registry
 from .db import Base, engine, get_session
-from .models import ComputeRun, ConnectionCandidate, JobRun, Source, Work
+from .models import (
+    ClientTopic,
+    ClientWorkspace,
+    ComputeRun,
+    ConnectionCandidate,
+    DatasetDefinition,
+    IntelligenceBrief,
+    JobRun,
+    Source,
+    Work,
+)
 from .reports import candidate_report
-from .schemas import ComputeRequest, HarvestRequest
+from .schemas import (
+    ClientTopicCreate,
+    ClientWorkspaceCreate,
+    ComputeRequest,
+    HarvestRequest,
+)
 
 logger = logging.getLogger("research_lab")
 
@@ -23,6 +40,10 @@ logger = logging.getLogger("research_lab")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
+    from .db import SessionLocal
+
+    with SessionLocal() as session:
+        seed_dataset_registry(session)
     yield
 
 
@@ -88,12 +109,16 @@ async def harvest(request: HarvestRequest, session: Session = Depends(get_sessio
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         for source_name in request.sources:
             try:
-                records = await ADAPTERS[source_name](client).harvest(request.query, request.limit_per_source)
+                adapter = ADAPTERS[source_name](client)
+                records = await adapter.harvest(request.query, request.limit_per_source)
                 for record in records:
                     work, created = store_record(session, record)
                     summary["created_versions"] += int(created)
                     summary["canonical_works"].append(work.id)
                 source = session.scalar(select(Source).where(Source.name == source_name))
+                if source is None:
+                    source = Source(name=source_name, base_url=adapter.base_url)
+                    session.add(source)
                 source.last_success_at, source.last_error = datetime.now(UTC), None
                 session.commit()
             except Exception as exc:
@@ -154,4 +179,120 @@ def findings(limit: int = 20, session: Session = Depends(get_session)):
     return {
         "disclaimer": "Research leads only; priority scores are not truth probabilities.",
         "candidates": candidate_report(session, limit=max(1, min(limit, 100))),
+    }
+
+
+@app.get("/v1/data-sources", dependencies=[Depends(require_service_token)])
+def data_sources(session: Session = Depends(get_session)):
+    seed_dataset_registry(session)
+    return [
+        {
+            "code": item.code,
+            "name": item.name,
+            "category": item.category,
+            "base_url": item.base_url,
+            "homepage_url": item.homepage_url,
+            "adapter": item.adapter,
+            "access_tier": item.access_tier,
+            "license_summary": item.license_summary,
+            "redistribution_policy": item.redistribution_policy,
+            "capabilities": item.capabilities,
+            "enabled": item.enabled,
+            "last_discovered_at": item.last_discovered_at,
+        }
+        for item in session.scalars(
+            select(DatasetDefinition).order_by(DatasetDefinition.category, DatasetDefinition.name)
+        )
+    ]
+
+
+@app.post("/v1/data-sources/sync", dependencies=[Depends(require_service_token)])
+async def sync_data_sources(session: Session = Depends(get_session)):
+    core = seed_dataset_registry(session)
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        providers = await discover_optimade_providers(session, client)
+    return {"core_datasets": core, "optimade_providers": providers}
+
+
+@app.post("/v1/client-workspaces", dependencies=[Depends(require_service_token)])
+def create_client_workspace(
+    request: ClientWorkspaceCreate,
+    session: Session = Depends(get_session),
+):
+    if session.scalar(select(ClientWorkspace).where(ClientWorkspace.slug == request.slug)):
+        raise HTTPException(status_code=409, detail="workspace slug already exists")
+    workspace = ClientWorkspace(
+        name=request.name,
+        slug=request.slug,
+        portal_token_sha256=hash_portal_token(request.portal_token),
+    )
+    session.add(workspace)
+    session.commit()
+    return {"id": workspace.id, "name": workspace.name, "slug": workspace.slug}
+
+
+@app.post(
+    "/v1/client-workspaces/{workspace_id}/topics",
+    dependencies=[Depends(require_service_token)],
+)
+def create_client_topic(
+    workspace_id: str,
+    request: ClientTopicCreate,
+    session: Session = Depends(get_session),
+):
+    workspace = session.get(ClientWorkspace, workspace_id)
+    if workspace is None or not workspace.active:
+        raise HTTPException(status_code=404, detail="active workspace not found")
+    topic = ClientTopic(
+        workspace_id=workspace.id,
+        name=request.name,
+        research_question=request.research_question,
+        keywords=sorted({keyword.strip().lower() for keyword in request.keywords}),
+    )
+    session.add(topic)
+    session.commit()
+    return {
+        "id": topic.id,
+        "workspace_id": workspace.id,
+        "name": topic.name,
+        "research_question": topic.research_question,
+        "keywords": topic.keywords,
+    }
+
+
+@app.get("/v1/client-portal/{slug}/briefs")
+def client_portal_briefs(
+    slug: str,
+    x_client_token: str = Header(default=""),
+    session: Session = Depends(get_session),
+):
+    workspace = session.scalar(
+        select(ClientWorkspace).where(
+            ClientWorkspace.slug == slug,
+            ClientWorkspace.active.is_(True),
+        )
+    )
+    if workspace is None or not verify_portal_token(workspace, x_client_token):
+        raise HTTPException(status_code=401, detail="invalid client portal credentials")
+    briefs = session.scalars(
+        select(IntelligenceBrief)
+        .where(
+            IntelligenceBrief.workspace_id == workspace.id,
+            IntelligenceBrief.status == "published",
+        )
+        .order_by(IntelligenceBrief.created_at.desc())
+        .limit(100)
+    )
+    return {
+        "workspace": {"name": workspace.name, "slug": workspace.slug},
+        "briefs": [
+            {
+                "id": brief.id,
+                "title": brief.title,
+                "executive_summary": brief.executive_summary,
+                "payload": brief.payload,
+                "created_at": brief.created_at,
+            }
+            for brief in briefs
+        ],
     }
