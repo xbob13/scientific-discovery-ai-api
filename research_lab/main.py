@@ -14,6 +14,7 @@ from .compute import run_sheet_resistance
 from .config import get_settings
 from .db import Base, engine, get_session
 from .models import ComputeRun, ConnectionCandidate, JobRun, Source, Work
+from .reports import candidate_report
 from .schemas import ComputeRequest, HarvestRequest
 
 logger = logging.getLogger("research_lab")
@@ -144,4 +145,13 @@ def dashboard(session: Session = Depends(get_session)):
         "compute_runs": session.scalar(select(func.count()).select_from(ComputeRun)),
         "kill_switch": get_settings().research_kill_switch,
         "medical_sandbox": "isolated; no clinical guidance endpoints enabled",
+    }
+
+
+@app.get("/v1/findings", dependencies=[Depends(require_service_token)])
+def findings(limit: int = 20, session: Session = Depends(get_session)):
+    """Return evidence-backed machine proposals in review-priority order."""
+    return {
+        "disclaimer": "Research leads only; priority scores are not truth probabilities.",
+        "candidates": candidate_report(session, limit=max(1, min(limit, 100))),
     }

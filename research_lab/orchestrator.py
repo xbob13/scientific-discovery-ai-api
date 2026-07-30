@@ -14,6 +14,7 @@ from .agents import LiteratureCartographer, load_documents, persist_connections
 from .canonical import store_record
 from .config import get_settings
 from .models import JobRun, Source
+from .reports import candidate_report
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,9 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
 
     documents = load_documents(session)
     proposals = LiteratureCartographer().propose(documents, cycle.connection_limit)
-    output["connections_created"] = persist_connections(session, proposals)
+    assessed_ids = persist_connections(session, proposals)
+    output["connections_created"] = len(assessed_ids)
+    output["candidates"] = candidate_report(session, assessed_ids)
     output["completed_at"] = datetime.now(UTC).isoformat()
     complete = all("error" not in value for value in output["sources"].values())
     job.status = "succeeded" if complete else "partial"

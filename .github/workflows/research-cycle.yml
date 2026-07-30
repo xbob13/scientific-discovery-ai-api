@@ -56,6 +56,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: research-cycle-${{ github.run_id }}
-          path: outputs/latest-cycle.json
+          path: |
+            outputs/latest-cycle.json
+            outputs/latest-cycle.md
           if-no-files-found: warn
           retention-days: 30
