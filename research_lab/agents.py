@@ -77,7 +77,12 @@ def evidence_excerpt(text: str, bridge_terms: tuple[str, ...], limit: int = 360)
 class LiteratureCartographer:
     """Deterministic candidate generator; it proposes links but never asserts truth."""
 
-    def propose(self, documents: list[ResearchDocument], limit: int = 20) -> list[ProposedConnection]:
+    def propose(
+        self,
+        documents: list[ResearchDocument],
+        limit: int = 20,
+        focus_work_ids: set[str] | None = None,
+    ) -> list[ProposedConnection]:
         if len(documents) < 2:
             return []
         document_terms = {
@@ -88,6 +93,8 @@ class LiteratureCartographer:
         proposals: list[ProposedConnection] = []
         for index, left in enumerate(documents):
             for right in documents[index + 1 :]:
+                if focus_work_ids and not {left.work_id, right.work_id} & focus_work_ids:
+                    continue
                 shared = document_terms[left.work_id] & document_terms[right.work_id]
                 mechanism_shared = shared & MECHANISM_TERMS
                 if not mechanism_shared:
