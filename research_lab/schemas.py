@@ -36,3 +36,15 @@ class ComputeRequest(BaseModel):
     conductivity_relative_uncertainty: float = Field(default=0.05, ge=0, le=0.5)
     samples: int = Field(default=10_000, ge=100, le=100_000)
     seed: int = 42
+
+
+class ClientWorkspaceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=240)
+    slug: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", min_length=3, max_length=120)
+    portal_token: str = Field(min_length=24, max_length=500)
+
+
+class ClientTopicCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=240)
+    research_question: str = Field(min_length=10, max_length=2000)
+    keywords: list[str] = Field(min_length=1, max_length=50)
