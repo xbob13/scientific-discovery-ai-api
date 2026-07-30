@@ -63,6 +63,7 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
             "Full-text support is not assumed when only title or abstract metadata is available.",
         ],
     }
+    harvested_work_ids: set[str] = set()
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         for source_name in cycle.sources:
             try:
@@ -71,7 +72,8 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
                 )
                 source_new = 0
                 for record in records:
-                    _, created = store_record(session, record)
+                    work, created = store_record(session, record)
+                    harvested_work_ids.add(work.id)
                     source_new += int(created)
                 source = session.scalar(select(Source).where(Source.name == source_name))
                 source.last_success_at = datetime.now(UTC)
@@ -84,7 +86,11 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
                 output["sources"][source_name] = {"error": type(exc).__name__}
 
     documents = load_documents(session)
-    proposals = LiteratureCartographer().propose(documents, cycle.connection_limit)
+    proposals = LiteratureCartographer().propose(
+        documents,
+        cycle.connection_limit,
+        focus_work_ids=harvested_work_ids,
+    )
     assessed_ids = persist_connections(session, proposals)
     output["connections_created"] = len(assessed_ids)
     output["candidates"] = candidate_report(session, assessed_ids)

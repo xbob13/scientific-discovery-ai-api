@@ -38,6 +38,19 @@ def test_cartographer_rejects_generic_academic_prose():
     assert LiteratureCartographer().propose(documents) == []
 
 
+def test_cartographer_requires_current_cycle_document_when_focus_is_supplied():
+    documents = [
+        ResearchDocument("old-a", "Graphene sensor", "Graphene conductivity sensor.", True),
+        ResearchDocument("old-b", "Graphene assay", "Graphene conductivity assay.", True),
+        ResearchDocument("current", "Membrane filtration", "Water membrane filtration.", True),
+    ]
+    proposals = LiteratureCartographer().propose(documents, focus_work_ids={"current"})
+    assert all(
+        "current" in {proposal.left_id, proposal.right_id}
+        for proposal in proposals
+    )
+
+
 def test_new_job_attempt_counter_can_be_incremented_before_flush():
     job = JobRun(job_type="cycle", idempotency_key="test", input={})
     job.attempts = (job.attempts or 0) + 1
