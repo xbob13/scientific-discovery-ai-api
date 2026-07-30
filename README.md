@@ -27,7 +27,7 @@ The lab runs as bounded research cycles rather than a collection of free-running
 3. canonicalizes works and versions;
 4. proposes transparent cross-paper retrieval hypotheses;
 5. records assumptions, falsifiable predictions, validation methods, and rejection criteria; and
-6. emits an inspectable JSON artifact.
+6. emits inspectable JSON and Markdown lab reports with source links and exact evidence excerpts.
 
 GitHub Actions is the initial zero-cost execution environment. It runs at minutes 7 and 37 of each hour, rotating through
 an engineering, materials, energy, water, sensors, and manufacturing agenda. This cadence is designed to remain near the
@@ -41,5 +41,7 @@ Run a cycle locally with:
 python scripts/run_research_cycle.py --question "your bounded research question"
 ```
 
-The connection agent uses deterministic information-retrieval signals. A proposed connection is explicitly not a
-scientific conclusion and cannot promote itself without corroborating evidence.
+The connection agent uses deterministic information-retrieval signals. Every candidate includes a decomposed
+review-priority score, source evidence, falsifiable prediction, validation method, prior-art query, corroboration state,
+limitations, and rejection criteria. A proposed connection is explicitly not a scientific conclusion and cannot promote
+itself without corroborating evidence. Authenticated clients can inspect ranked assessments at `GET /v1/findings`.

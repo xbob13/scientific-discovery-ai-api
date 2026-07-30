@@ -6,6 +6,7 @@ from pathlib import Path
 from research_lab.agenda import scheduled_question
 from research_lab.db import Base, SessionLocal, engine
 from research_lab.orchestrator import ResearchCycle, run_cycle_sync
+from research_lab.reports import render_markdown
 
 
 def main() -> None:
@@ -17,6 +18,7 @@ def main() -> None:
     )
     parser.add_argument("--limit-per-source", type=int, default=10)
     parser.add_argument("--output", type=Path, default=Path("outputs/latest-cycle.json"))
+    parser.add_argument("--report", type=Path, default=Path("outputs/latest-cycle.md"))
     args = parser.parse_args()
     Base.metadata.create_all(engine)
     with SessionLocal() as session:
@@ -26,6 +28,8 @@ def main() -> None:
         )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(render_markdown(result), encoding="utf-8")
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
