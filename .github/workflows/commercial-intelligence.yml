@@ -1,0 +1,54 @@
+name: Governed commercial intelligence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 * * * *"
+
+concurrency:
+  group: governed-commercial-intelligence
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    if: ${{ vars.PROSPECT_DISCOVERY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      PROSPECT_DISCOVERY_ENABLED: "true"
+      PROSPECT_DISCOVERY_FEED_URL: ${{ secrets.PROSPECT_DISCOVERY_FEED_URL }}
+      PROSPECT_DISCOVERY_TOKEN: ${{ secrets.PROSPECT_DISCOVERY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -e .
+      - run: test -n "$DATABASE_URL" && test -n "$PROSPECT_DISCOVERY_FEED_URL"
+      - run: alembic upgrade head
+      - run: python -m scripts.run_commercial_intelligence --discover
+
+  deliver-approved:
+    if: ${{ vars.OUTREACH_SEND_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      OUTREACH_SEND_ENABLED: "true"
+      OUTREACH_DELIVERY_WEBHOOK_URL: ${{ secrets.OUTREACH_DELIVERY_WEBHOOK_URL }}
+      OUTREACH_DELIVERY_TOKEN: ${{ secrets.OUTREACH_DELIVERY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -e .
+      - run: test -n "$DATABASE_URL" && test -n "$OUTREACH_DELIVERY_WEBHOOK_URL"
+      - run: alembic upgrade head
+      - run: python -m scripts.run_commercial_intelligence --deliver-approved --limit 25

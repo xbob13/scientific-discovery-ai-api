@@ -3,18 +3,26 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .adapters import ADAPTERS
 from .auth import require_service_token
 from .canonical import store_record
-from .clients import hash_portal_token, verify_portal_token
+from .clients import hash_portal_token
+from .commerce import activate_subscription
 from .compute import run_sheet_resistance
 from .config import get_settings
 from .datasets import discover_optimade_providers, seed_dataset_registry
 from .db import Base, engine, get_session
+from .mandates import (
+    authenticated_workspace,
+    create_mandate,
+    entitlement_for,
+    mandate_view,
+    process_mandate,
+)
 from .models import (
     ClientTopic,
     ClientWorkspace,
@@ -23,18 +31,52 @@ from .models import (
     DatasetDefinition,
     IntelligenceBrief,
     JobRun,
+    OutreachMessage,
+    PatentDocument,
+    ProspectAccount,
+    ResearchMandate,
     Source,
     Work,
 )
+from .outreach import (
+    approve_outreach,
+    create_prospect,
+    deliver_outreach,
+    draft_outreach,
+    message_view,
+    prospect_view,
+    suppress_prospect,
+)
+from .patents import patent_view, search_patents
 from .reports import candidate_report
 from .schemas import (
+    ClientMandateCreate,
     ClientTopicCreate,
     ClientWorkspaceCreate,
     ComputeRequest,
     HarvestRequest,
+    OutreachApprovalRequest,
+    OutreachDraftCreate,
+    PatentSearchRequest,
+    ProspectCreate,
+    SubscriptionActivationRequest,
 )
 
 logger = logging.getLogger("research_lab")
+
+
+async def process_mandate_by_id(mandate_id: str) -> None:
+    """Run after a response while the scheduled durable worker remains the fallback."""
+    from .db import SessionLocal
+
+    with SessionLocal() as session:
+        mandate = session.get(ResearchMandate, mandate_id)
+        if mandate is None:
+            return
+        try:
+            await process_mandate(session, mandate)
+        except Exception:
+            logger.exception("background client mandate failed", extra={"mandate_id": mandate_id})
 
 
 @asynccontextmanager
@@ -49,15 +91,23 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Patterson Research Labs API",
-    version="0.1.0",
-    description="Evidence-grounded research intelligence. Outputs are unvalidated research hypotheses.",
+    version="0.2.0",
+    description=(
+        "Governed research, patent, and client intelligence. Machine outputs remain auditable "
+        "research leads until reviewed."
+    ),
     lifespan=lifespan,
 )
 
 
 @app.get("/")
 def root():
-    return {"product": "Patterson Research Labs", "status": "operational", "claims": "unvalidated research"}
+    return {
+        "product": "Patterson Research Labs",
+        "status": "operational",
+        "capabilities": ["research_intelligence", "patent_landscapes", "client_workspaces"],
+        "claims": "review-gated research intelligence",
+    }
 
 
 @app.get("/health")
@@ -168,6 +218,17 @@ def dashboard(session: Session = Depends(get_session)):
             .where(ConnectionCandidate.status == "pending_review")
         ),
         "compute_runs": session.scalar(select(func.count()).select_from(ComputeRun)),
+        "queued_client_mandates": session.scalar(
+            select(func.count())
+            .select_from(ResearchMandate)
+            .where(ResearchMandate.status == "queued")
+        ),
+        "patent_records": session.scalar(select(func.count()).select_from(PatentDocument)),
+        "outreach_awaiting_approval": session.scalar(
+            select(func.count())
+            .select_from(OutreachMessage)
+            .where(OutreachMessage.status == "draft")
+        ),
         "kill_switch": get_settings().research_kill_switch,
         "medical_sandbox": "isolated; no clinical guidance endpoints enabled",
     }
@@ -260,20 +321,158 @@ def create_client_topic(
     }
 
 
+@app.post("/v1/subscriptions/activate", dependencies=[Depends(require_service_token)])
+def activate_verified_subscription(
+    request: SubscriptionActivationRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    """Provision access after the caller has independently verified checkout completion."""
+    try:
+        activation = activate_subscription(session, request)
+        if activation.get("mandate_id"):
+            background_tasks.add_task(process_mandate_by_id, activation["mandate_id"])
+        return activation
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/v1/patents/search", dependencies=[Depends(require_service_token)])
+async def patents_search(request: PatentSearchRequest, session: Session = Depends(get_session)):
+    if get_settings().research_kill_switch:
+        raise HTTPException(status_code=503, detail="global research kill switch is active")
+    try:
+        return await search_patents(
+            session,
+            request.query,
+            request.providers,
+            request.limit_per_provider,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/v1/patents", dependencies=[Depends(require_service_token)])
+def patents(limit: int = 100, session: Session = Depends(get_session)):
+    records = session.scalars(
+        select(PatentDocument)
+        .order_by(PatentDocument.retrieved_at.desc())
+        .limit(max(1, min(limit, 500)))
+    )
+    return {
+        "records": [patent_view(record) for record in records],
+        "disclaimer": "Research metadata only; not a legal-status or freedom-to-operate opinion.",
+    }
+
+
+@app.post("/v1/prospects", dependencies=[Depends(require_service_token)])
+def prospects_create(request: ProspectCreate, session: Session = Depends(get_session)):
+    try:
+        return prospect_view(create_prospect(session, request))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/v1/prospects", dependencies=[Depends(require_service_token)])
+def prospects(session: Session = Depends(get_session)):
+    return [
+        prospect_view(prospect)
+        for prospect in session.scalars(
+            select(ProspectAccount).order_by(ProspectAccount.relevance_score.desc())
+        )
+    ]
+
+
+@app.post("/v1/outreach/drafts", dependencies=[Depends(require_service_token)])
+def outreach_draft(request: OutreachDraftCreate, session: Session = Depends(get_session)):
+    try:
+        return message_view(draft_outreach(session, request))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/v1/outreach", dependencies=[Depends(require_service_token)])
+def outreach_messages(session: Session = Depends(get_session)):
+    return [
+        message_view(message)
+        for message in session.scalars(
+            select(OutreachMessage).order_by(OutreachMessage.created_at.desc())
+        )
+    ]
+
+
+@app.post("/v1/outreach/{message_id}/approve", dependencies=[Depends(require_service_token)])
+def outreach_approve(
+    message_id: str,
+    request: OutreachApprovalRequest,
+    session: Session = Depends(get_session),
+):
+    message = session.get(OutreachMessage, message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail="outreach message not found")
+    try:
+        return message_view(approve_outreach(session, message, request.approved_by))
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/v1/outreach/{message_id}/send", dependencies=[Depends(require_service_token)])
+async def outreach_send(message_id: str, session: Session = Depends(get_session)):
+    message = session.get(OutreachMessage, message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail="outreach message not found")
+    try:
+        return message_view(await deliver_outreach(session, message))
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/v1/prospects/{prospect_id}/suppress", dependencies=[Depends(require_service_token)])
+def prospect_suppress(prospect_id: str, session: Session = Depends(get_session)):
+    prospect = session.get(ProspectAccount, prospect_id)
+    if prospect is None:
+        raise HTTPException(status_code=404, detail="prospect not found")
+    return prospect_view(suppress_prospect(session, prospect))
+
+
+@app.post("/v1/mandates/process-pending", dependencies=[Depends(require_service_token)])
+async def process_pending_mandates(limit: int = 5, session: Session = Depends(get_session)):
+    mandates = session.scalars(
+        select(ResearchMandate)
+        .where(ResearchMandate.status == "queued")
+        .order_by(ResearchMandate.priority.desc(), ResearchMandate.created_at)
+        .limit(max(1, min(limit, 25)))
+    ).all()
+    processed = []
+    failures = {}
+    for mandate in mandates:
+        try:
+            await process_mandate(session, mandate)
+            processed.append(mandate.id)
+        except Exception as exc:
+            failures[mandate.id] = f"{type(exc).__name__}: {str(exc)[:300]}"
+    remaining = session.scalar(
+        select(func.count())
+        .select_from(ResearchMandate)
+        .where(ResearchMandate.status == "queued")
+    ) or 0
+    return {"processed": processed, "failures": failures, "remaining": remaining}
+
+
 @app.get("/v1/client-portal/{slug}/briefs")
 def client_portal_briefs(
     slug: str,
     x_client_token: str = Header(default=""),
     session: Session = Depends(get_session),
 ):
-    workspace = session.scalar(
-        select(ClientWorkspace).where(
-            ClientWorkspace.slug == slug,
-            ClientWorkspace.active.is_(True),
-        )
-    )
-    if workspace is None or not verify_portal_token(workspace, x_client_token):
+    workspace = authenticated_workspace(session, slug, x_client_token)
+    if workspace is None:
         raise HTTPException(status_code=401, detail="invalid client portal credentials")
+    entitlement = entitlement_for(session, workspace)
     briefs = session.scalars(
         select(IntelligenceBrief)
         .where(
@@ -285,6 +484,22 @@ def client_portal_briefs(
     )
     return {
         "workspace": {"name": workspace.name, "slug": workspace.slug},
+        "entitlement": {
+            "plan": entitlement.plan,
+            "allowed_sources": entitlement.allowed_sources,
+            "monthly_request_limit": entitlement.monthly_request_limit,
+            "export_formats": entitlement.export_formats,
+            "active": entitlement.active,
+        },
+        "mandates": [
+            mandate_view(mandate)
+            for mandate in session.scalars(
+                select(ResearchMandate)
+                .where(ResearchMandate.workspace_id == workspace.id)
+                .order_by(ResearchMandate.created_at.desc())
+                .limit(100)
+            )
+        ],
         "briefs": [
             {
                 "id": brief.id,
@@ -296,3 +511,26 @@ def client_portal_briefs(
             for brief in briefs
         ],
     }
+
+
+@app.post("/v1/client-portal/{slug}/mandates", status_code=202)
+def client_portal_create_mandate(
+    slug: str,
+    request: ClientMandateCreate,
+    background_tasks: BackgroundTasks,
+    x_client_token: str = Header(default=""),
+    session: Session = Depends(get_session),
+):
+    workspace = authenticated_workspace(session, slug, x_client_token)
+    if workspace is None:
+        raise HTTPException(status_code=401, detail="invalid client portal credentials")
+    if get_settings().research_kill_switch:
+        raise HTTPException(status_code=503, detail="global research kill switch is active")
+    try:
+        mandate = create_mandate(session, workspace, request)
+        background_tasks.add_task(process_mandate_by_id, mandate.id)
+        return mandate_view(mandate)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except OverflowError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc

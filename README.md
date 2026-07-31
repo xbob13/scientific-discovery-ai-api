@@ -16,7 +16,8 @@ Use `docker compose up --build` for PostgreSQL-backed development. Copy `.env.ex
 development secrets. The API requires `Authorization: Bearer <BACKEND_SERVICE_TOKEN>` for operational endpoints.
 
 The system produces research intelligence and unvalidated hypotheses. It does not provide medical advice, patentability
-opinions, autonomous publications, filings, purchases, messages, or experiments.
+opinions, autonomous publications, filings, purchases, or experiments. Outbound messages require named human approval,
+and the delivery integration is disabled by default.
 
 ## Autonomous digital lab
 
@@ -93,3 +94,54 @@ Initial federation:
 The platform stores provider metadata by default. Payload ingestion is enabled only when provider and record-level terms
 permit it. Licensed sources such as commercial standards, handbooks, full-text journals, CSD/ICSD, and commercial patent
 analytics require separate customer-funded agreements and must not be scraped into the shared lab.
+
+## Self-service intelligence platform
+
+The API supports verified checkout activation without trusting browser-supplied payment state. A server-side commerce
+function verifies the provider session and then calls `POST /v1/subscriptions/activate` using the backend service token.
+Activation is idempotent and creates:
+
+- a token-hashed, isolated client workspace;
+- a source and export entitlement for the purchased plan;
+- an initial client topic and metered research mandate; and
+- an auditable subscription activation record.
+
+Clients can submit further bounded questions at `POST /v1/client-portal/{slug}/mandates`. The API enforces the workspace
+token, source entitlement, and rolling 30-day request allowance before accepting the job. Long-running backends begin the
+job immediately as a background task. `scripts/run_pending_mandates.py` and the `client-mandates.yml` workflow provide a
+durable recovery worker for queued jobs.
+
+Configure a unique `PORTAL_TOKEN_SIGNING_SECRET`; do not reuse the backend service token. Production workers require a
+durable PostgreSQL `PRODUCTION_DATABASE_URL`. GitHub schedule timing is best-effort, so a continuously running queue worker
+or managed scheduled job is recommended for contractual processing deadlines.
+
+## Patent intelligence
+
+`POST /v1/patents/search` federates configured USPTO PatentsView and EPO OPS searches, normalizes records, retains raw
+provider provenance and checksums, and returns an explainable landscape of assignees, classifications, publication years,
+and query-term coverage. Add `PATENTSVIEW_API_KEY` and/or EPO OPS consumer credentials to activate providers.
+
+Patent output is research triage. It is not a legal-status, patentability, validity, infringement, or freedom-to-operate
+opinion. The application should link to the authoritative source record and use patent counsel for consequential IP
+decisions.
+
+## Governed commercial outreach
+
+Prospects must be backed by a public source URL, a relevance signal, a business contact, and a documented contact basis.
+The system can prepare a relevant first-touch draft, but it cannot send from draft state. A named administrator must
+approve each message. Delivery also requires all of the following:
+
+```env
+OUTREACH_SEND_ENABLED=true
+OUTREACH_DELIVERY_WEBHOOK_URL=https://approved-sender.example/send
+OUTREACH_DELIVERY_TOKEN=replace-with-provider-token
+```
+
+Suppression immediately blocks pending messages. Provider delivery IDs, approver identity, approval time, delivery state,
+and errors remain in the audit ledger. The operator is still responsible for applicable anti-spam, privacy, sender
+identification, and unsubscribe requirements in every recipient jurisdiction.
+
+An optional evidence-feed worker can ingest researched accounts and prepare drafts automatically. It accepts structured
+records from an approved search/data provider; it does not scrape arbitrary sites. Set `PROSPECT_DISCOVERY_ENABLED=true`
+and configure the feed URL/token to use it. The hourly commercial workflow can also deliver messages already in `approved`
+state when `OUTREACH_SEND_ENABLED=true`. Discovery never approves or sends its own drafts.

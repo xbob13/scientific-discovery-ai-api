@@ -10,6 +10,30 @@ from .models import DatasetDefinition
 
 CORE_DATASETS = [
     {
+        "code": "openalex",
+        "name": "OpenAlex",
+        "category": "scholarly_literature",
+        "base_url": "https://api.openalex.org",
+        "homepage_url": "https://openalex.org",
+        "adapter": "openalex",
+        "access_tier": "public",
+        "license_summary": "Open scholarly metadata; referenced full-text licenses remain record-specific.",
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["works", "authors", "institutions", "concepts", "citations"],
+    },
+    {
+        "code": "crossref",
+        "name": "Crossref",
+        "category": "scholarly_literature",
+        "base_url": "https://api.crossref.org",
+        "homepage_url": "https://www.crossref.org",
+        "adapter": "crossref",
+        "access_tier": "public",
+        "license_summary": "Public DOI metadata; abstracts and linked content may carry separate rights.",
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["dois", "works", "funding", "relations", "corrections", "retractions"],
+    },
+    {
         "code": "optimade-providers",
         "name": "OPTIMADE provider federation",
         "category": "computed_materials",
@@ -80,6 +104,18 @@ CORE_DATASETS = [
         "license_summary": "Research-grade USPTO-derived data; not the official patent record.",
         "redistribution_policy": "metadata_and_links",
         "capabilities": ["patents", "inventors", "assignees", "citations", "technology_landscape"],
+    },
+    {
+        "code": "epo-ops",
+        "name": "EPO Open Patent Services",
+        "category": "patents",
+        "base_url": "https://ops.epo.org/3.2/rest-services",
+        "homepage_url": "https://www.epo.org/en/searching-for-patents/data/web-services/ops",
+        "adapter": "epo_ops",
+        "access_tier": "credentialed_public_service",
+        "license_summary": "EPO OPS terms, quotas, and fair-use controls apply to programmatic patent data.",
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["bibliography", "families", "legal_status", "full_text", "images"],
     },
 ]
 

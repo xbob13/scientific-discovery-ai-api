@@ -48,3 +48,49 @@ class ClientTopicCreate(BaseModel):
     name: str = Field(min_length=2, max_length=240)
     research_question: str = Field(min_length=10, max_length=2000)
     keywords: list[str] = Field(min_length=1, max_length=50)
+
+
+class SubscriptionActivationRequest(BaseModel):
+    provider: str = Field(default="stripe", pattern=r"^[a-z0-9_-]+$", max_length=40)
+    external_session_id: str = Field(min_length=8, max_length=255)
+    plan: str = Field(pattern=r"^[a-z0-9-]+$", max_length=80)
+    contact_email: str = Field(min_length=5, max_length=320)
+    organization: str = Field(min_length=2, max_length=240)
+    program_slug: str = Field(default="custom", pattern=r"^[a-z0-9-]+$", max_length=120)
+    research_question: str = Field(min_length=30, max_length=4000)
+
+
+class ClientMandateCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=300)
+    question: str = Field(min_length=30, max_length=4000)
+    sources: list[str] = Field(default_factory=lambda: ["openalex", "crossref", "datacite"])
+    requested_outputs: list[str] = Field(default_factory=lambda: ["executive_brief", "evidence_ledger"])
+    constraints: dict = Field(default_factory=dict)
+    external_reference: str | None = Field(default=None, max_length=240)
+
+
+class PatentSearchRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=500)
+    providers: list[str] = Field(default_factory=lambda: ["patentsview"])
+    limit_per_provider: int = Field(default=10, ge=1, le=100)
+
+
+class ProspectCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=240)
+    domain: str | None = Field(default=None, max_length=300)
+    target_type: str = Field(default="company", max_length=80)
+    evidence_signals: list[dict] = Field(min_length=1, max_length=30)
+    contact_name: str | None = Field(default=None, max_length=240)
+    contact_email: str | None = Field(default=None, max_length=320)
+    contact_basis: str | None = Field(default=None, max_length=240)
+    source_url: HttpUrl | None = None
+
+
+class OutreachDraftCreate(BaseModel):
+    prospect_id: str = Field(min_length=8, max_length=64)
+    program_slug: str = Field(default="custom", max_length=120)
+    value_proposition: str = Field(min_length=20, max_length=1200)
+
+
+class OutreachApprovalRequest(BaseModel):
+    approved_by: str = Field(min_length=2, max_length=240)
