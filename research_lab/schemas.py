@@ -53,6 +53,10 @@ class ClientTopicCreate(BaseModel):
 class SubscriptionActivationRequest(BaseModel):
     provider: str = Field(default="stripe", pattern=r"^[a-z0-9_-]+$", max_length=40)
     external_session_id: str = Field(min_length=8, max_length=255)
+    external_customer_id: str | None = Field(default=None, max_length=255)
+    external_subscription_id: str | None = Field(default=None, max_length=255)
+    subscription_status: str = Field(default="active", max_length=40)
+    current_period_end: datetime | None = None
     plan: str = Field(pattern=r"^[a-z0-9-]+$", max_length=80)
     contact_email: str = Field(min_length=5, max_length=320)
     organization: str = Field(min_length=2, max_length=240)
@@ -71,7 +75,7 @@ class ClientMandateCreate(BaseModel):
 
 class PatentSearchRequest(BaseModel):
     query: str = Field(min_length=3, max_length=500)
-    providers: list[str] = Field(default_factory=lambda: ["patentsview"])
+    providers: list[str] = Field(default_factory=lambda: ["uspto_odp", "epo_ops"])
     limit_per_provider: int = Field(default=10, ge=1, le=100)
 
 
@@ -92,5 +96,18 @@ class OutreachDraftCreate(BaseModel):
     value_proposition: str = Field(min_length=20, max_length=1200)
 
 
-class OutreachApprovalRequest(BaseModel):
-    approved_by: str = Field(min_length=2, max_length=240)
+class CommerceLifecycleEventRequest(BaseModel):
+    provider: str = Field(default="stripe", pattern=r"^[a-z0-9_-]+$", max_length=40)
+    external_event_id: str = Field(min_length=8, max_length=255)
+    event_type: str = Field(min_length=3, max_length=120)
+    external_customer_id: str | None = Field(default=None, max_length=255)
+    external_subscription_id: str | None = Field(default=None, max_length=255)
+    external_session_id: str | None = Field(default=None, max_length=255)
+    event_created_at: datetime | None = None
+    status: str | None = Field(default=None, max_length=40)
+
+
+class InstitutionDiscoveryRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=500)
+    limit: int = Field(default=20, ge=1, le=50)
+    seed_verified_channels: bool = True
