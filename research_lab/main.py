@@ -11,11 +11,12 @@ from .adapters import ADAPTERS
 from .auth import require_service_token
 from .canonical import store_record
 from .clients import hash_portal_token
-from .commerce import activate_subscription
+from .commerce import activate_subscription, apply_commerce_event
 from .compute import run_sheet_resistance
 from .config import get_settings
 from .datasets import discover_optimade_providers, seed_dataset_registry
 from .db import Base, engine, get_session
+from .institutions import discover_research_institutions, institution_view
 from .mandates import (
     authenticated_workspace,
     create_mandate,
@@ -34,17 +35,19 @@ from .models import (
     OutreachMessage,
     PatentDocument,
     ProspectAccount,
+    ResearchInstitution,
     ResearchMandate,
     Source,
     Work,
 )
 from .outreach import (
-    approve_outreach,
+    autonomous_outreach_readiness,
     create_prospect,
     deliver_outreach,
     draft_outreach,
     message_view,
     prospect_view,
+    suppress_from_unsubscribe,
     suppress_prospect,
 )
 from .patents import patent_view, search_patents
@@ -53,9 +56,10 @@ from .schemas import (
     ClientMandateCreate,
     ClientTopicCreate,
     ClientWorkspaceCreate,
+    CommerceLifecycleEventRequest,
     ComputeRequest,
     HarvestRequest,
-    OutreachApprovalRequest,
+    InstitutionDiscoveryRequest,
     OutreachDraftCreate,
     PatentSearchRequest,
     ProspectCreate,
@@ -91,7 +95,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Patterson Research Labs API",
-    version="0.2.0",
+    version="0.3.0",
     description=(
         "Governed research, patent, and client intelligence. Machine outputs remain auditable "
         "research leads until reviewed."
@@ -105,8 +109,14 @@ def root():
     return {
         "product": "Patterson Research Labs",
         "status": "operational",
-        "capabilities": ["research_intelligence", "patent_landscapes", "client_workspaces"],
-        "claims": "review-gated research intelligence",
+        "capabilities": [
+            "research_intelligence",
+            "patent_claim_synthesis",
+            "client_workspaces",
+            "institution_network",
+            "autonomous_commercial_operations",
+        ],
+        "claims": "evidence-gated research intelligence",
     }
 
 
@@ -219,16 +229,20 @@ def dashboard(session: Session = Depends(get_session)):
         ),
         "compute_runs": session.scalar(select(func.count()).select_from(ComputeRun)),
         "queued_client_mandates": session.scalar(
-            select(func.count())
-            .select_from(ResearchMandate)
-            .where(ResearchMandate.status == "queued")
+            select(func.count()).select_from(ResearchMandate).where(ResearchMandate.status == "queued")
         ),
         "patent_records": session.scalar(select(func.count()).select_from(PatentDocument)),
-        "outreach_awaiting_approval": session.scalar(
-            select(func.count())
-            .select_from(OutreachMessage)
-            .where(OutreachMessage.status == "draft")
+        "research_institutions": session.scalar(select(func.count()).select_from(ResearchInstitution)),
+        "outreach_queued": session.scalar(
+            select(func.count()).select_from(OutreachMessage).where(OutreachMessage.status == "queued")
         ),
+        "outreach_held": session.scalar(
+            select(func.count()).select_from(OutreachMessage).where(OutreachMessage.status == "held")
+        ),
+        "outreach_sent": session.scalar(
+            select(func.count()).select_from(OutreachMessage).where(OutreachMessage.status == "sent")
+        ),
+        "autonomous_outreach": autonomous_outreach_readiness(),
         "kill_switch": get_settings().research_kill_switch,
         "medical_sandbox": "isolated; no clinical guidance endpoints enabled",
     }
@@ -337,6 +351,15 @@ def activate_verified_subscription(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/v1/subscriptions/events", dependencies=[Depends(require_service_token)])
+def apply_verified_commerce_event(
+    request: CommerceLifecycleEventRequest,
+    session: Session = Depends(get_session),
+):
+    """Apply a payment lifecycle event after the edge function verifies its signature."""
+    return apply_commerce_event(session, request)
+
+
 @app.post("/v1/patents/search", dependencies=[Depends(require_service_token)])
 async def patents_search(request: PatentSearchRequest, session: Session = Depends(get_session)):
     if get_settings().research_kill_switch:
@@ -355,14 +378,37 @@ async def patents_search(request: PatentSearchRequest, session: Session = Depend
 @app.get("/v1/patents", dependencies=[Depends(require_service_token)])
 def patents(limit: int = 100, session: Session = Depends(get_session)):
     records = session.scalars(
-        select(PatentDocument)
-        .order_by(PatentDocument.retrieved_at.desc())
-        .limit(max(1, min(limit, 500)))
+        select(PatentDocument).order_by(PatentDocument.retrieved_at.desc()).limit(max(1, min(limit, 500)))
     )
     return {
         "records": [patent_view(record) for record in records],
         "disclaimer": "Research metadata only; not a legal-status or freedom-to-operate opinion.",
     }
+
+
+@app.post("/v1/institutions/discover", dependencies=[Depends(require_service_token)])
+async def institutions_discover(
+    request: InstitutionDiscoveryRequest,
+    session: Session = Depends(get_session),
+):
+    if get_settings().research_kill_switch:
+        raise HTTPException(status_code=503, detail="global research kill switch is active")
+    return await discover_research_institutions(
+        session,
+        request.query,
+        request.limit,
+        seed_verified_channels=request.seed_verified_channels,
+    )
+
+
+@app.get("/v1/institutions", dependencies=[Depends(require_service_token)])
+def institutions(limit: int = 250, session: Session = Depends(get_session)):
+    items = session.scalars(
+        select(ResearchInstitution)
+        .order_by(ResearchInstitution.relevance_score.desc(), ResearchInstitution.name)
+        .limit(max(1, min(limit, 500)))
+    )
+    return {"institutions": [institution_view(item) for item in items]}
 
 
 @app.post("/v1/prospects", dependencies=[Depends(require_service_token)])
@@ -397,25 +443,8 @@ def outreach_draft(request: OutreachDraftCreate, session: Session = Depends(get_
 def outreach_messages(session: Session = Depends(get_session)):
     return [
         message_view(message)
-        for message in session.scalars(
-            select(OutreachMessage).order_by(OutreachMessage.created_at.desc())
-        )
+        for message in session.scalars(select(OutreachMessage).order_by(OutreachMessage.created_at.desc()))
     ]
-
-
-@app.post("/v1/outreach/{message_id}/approve", dependencies=[Depends(require_service_token)])
-def outreach_approve(
-    message_id: str,
-    request: OutreachApprovalRequest,
-    session: Session = Depends(get_session),
-):
-    message = session.get(OutreachMessage, message_id)
-    if message is None:
-        raise HTTPException(status_code=404, detail="outreach message not found")
-    try:
-        return message_view(approve_outreach(session, message, request.approved_by))
-    except PermissionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/v1/outreach/{message_id}/send", dependencies=[Depends(require_service_token)])
@@ -439,6 +468,27 @@ def prospect_suppress(prospect_id: str, session: Session = Depends(get_session))
     return prospect_view(suppress_prospect(session, prospect))
 
 
+@app.get("/v1/outreach/readiness", dependencies=[Depends(require_service_token)])
+def outreach_readiness():
+    return autonomous_outreach_readiness()
+
+
+@app.get("/v1/outreach/unsubscribe")
+def outreach_unsubscribe(
+    message_id: str,
+    prospect_id: str,
+    signature: str,
+    session: Session = Depends(get_session),
+):
+    try:
+        suppress_from_unsubscribe(session, message_id, prospect_id, signature)
+        return {"status": "suppressed", "message": "This address will not receive further outreach."}
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 @app.post("/v1/mandates/process-pending", dependencies=[Depends(require_service_token)])
 async def process_pending_mandates(limit: int = 5, session: Session = Depends(get_session)):
     mandates = session.scalars(
@@ -455,11 +505,12 @@ async def process_pending_mandates(limit: int = 5, session: Session = Depends(ge
             processed.append(mandate.id)
         except Exception as exc:
             failures[mandate.id] = f"{type(exc).__name__}: {str(exc)[:300]}"
-    remaining = session.scalar(
-        select(func.count())
-        .select_from(ResearchMandate)
-        .where(ResearchMandate.status == "queued")
-    ) or 0
+    remaining = (
+        session.scalar(
+            select(func.count()).select_from(ResearchMandate).where(ResearchMandate.status == "queued")
+        )
+        or 0
+    )
     return {"processed": processed, "failures": failures, "remaining": remaining}
 
 
