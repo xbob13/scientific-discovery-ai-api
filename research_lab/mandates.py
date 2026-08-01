@@ -77,14 +77,17 @@ def create_mandate(
             return existing
 
     since = entitlement.period_started_at
-    used = session.scalar(
-        select(func.count())
-        .select_from(ResearchMandate)
-        .where(
-            ResearchMandate.workspace_id == workspace.id,
-            ResearchMandate.created_at >= since,
+    used = (
+        session.scalar(
+            select(func.count())
+            .select_from(ResearchMandate)
+            .where(
+                ResearchMandate.workspace_id == workspace.id,
+                ResearchMandate.created_at >= since,
+            )
         )
-    ) or 0
+        or 0
+    )
     if used >= entitlement.monthly_request_limit:
         raise OverflowError("workspace request allowance has been reached")
 
@@ -127,7 +130,7 @@ def mandate_view(mandate: ResearchMandate) -> dict:
 
 async def process_mandate(session: Session, mandate: ResearchMandate) -> dict:
     from .orchestrator import ResearchCycle, run_cycle
-    from .patents import search_patents
+    from .patents import search_patents, synthesize_patent_evidence
 
     if mandate.status not in {"queued", "failed"}:
         return mandate.result or {}
@@ -159,14 +162,25 @@ async def process_mandate(session: Session, mandate: ResearchMandate) -> dict:
                 ),
             )
         patent_providers = [
-            source for source in mandate.sources if source in {"patentsview", "epo_ops"}
+            source for source in mandate.sources if source in {"uspto_odp", "patentsview", "epo_ops"}
         ]
-        patent_result = await search_patents(
-            session,
-            mandate.question,
-            patent_providers,
-            limit_per_provider=10,
-        ) if patent_providers else {"records": [], "provider_failures": {}}
+        patent_result = (
+            await search_patents(
+                session,
+                mandate.question,
+                patent_providers,
+                limit_per_provider=10,
+            )
+            if patent_providers
+            else {"records": [], "provider_failures": {}}
+        )
+        patent_result.setdefault("landscape", {}).update(
+            synthesize_patent_evidence(
+                patent_result.get("records", []),
+                mandate.question,
+                research.get("candidates", []),
+            )
+        )
         result = {
             **research,
             "patents": patent_result,
@@ -217,6 +231,7 @@ def _publish_mandate_brief(
         return existing
     candidates = result.get("candidates", [])
     patents = result.get("patents", {}).get("records", [])
+    patent_synthesis = result.get("patents", {}).get("landscape", {})
     brief = IntelligenceBrief(
         workspace_id=mandate.workspace_id,
         topic_id=topic.id,
@@ -231,6 +246,7 @@ def _publish_mandate_brief(
             "question": mandate.question,
             "candidates": candidates,
             "patents": patents,
+            "patent_synthesis": patent_synthesis,
             "source_summary": result.get("sources", {}),
             "limitations": result.get("limitations", []),
             "completed_at": result.get("completed_at"),
