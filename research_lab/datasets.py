@@ -10,6 +10,30 @@ from .models import DatasetDefinition
 
 CORE_DATASETS = [
     {
+        "code": "openalex",
+        "name": "OpenAlex",
+        "category": "scholarly_literature",
+        "base_url": "https://api.openalex.org",
+        "homepage_url": "https://openalex.org",
+        "adapter": "openalex",
+        "access_tier": "public",
+        "license_summary": "Open scholarly metadata; referenced full-text licenses remain record-specific.",
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["works", "authors", "institutions", "concepts", "citations"],
+    },
+    {
+        "code": "crossref",
+        "name": "Crossref",
+        "category": "scholarly_literature",
+        "base_url": "https://api.crossref.org",
+        "homepage_url": "https://www.crossref.org",
+        "adapter": "crossref",
+        "access_tier": "public",
+        "license_summary": "Public DOI metadata; abstracts and linked content may carry separate rights.",
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["dois", "works", "funding", "relations", "corrections", "retractions"],
+    },
+    {
         "code": "optimade-providers",
         "name": "OPTIMADE provider federation",
         "category": "computed_materials",
@@ -70,24 +94,48 @@ CORE_DATASETS = [
         "capabilities": ["energy_research", "technical_reports", "software", "datasets"],
     },
     {
-        "code": "uspto-patentsview",
-        "name": "USPTO PatentsView",
+        "code": "uspto-odp-pfw",
+        "name": "USPTO Open Data Portal Patent File Wrapper",
         "category": "patents",
-        "base_url": "https://search.patentsview.org",
-        "homepage_url": "https://patentsview.org",
-        "adapter": "patentsview",
-        "access_tier": "public",
-        "license_summary": "Research-grade USPTO-derived data; not the official patent record.",
+        "base_url": "https://api.uspto.gov/api/v1/patent/applications",
+        "homepage_url": "https://data.uspto.gov/apis/patent-file-wrapper/search",
+        "adapter": "uspto_odp",
+        "access_tier": "api_key",
+        "license_summary": "Official USPTO application data; API key, terms, and record-level limits apply.",
         "redistribution_policy": "metadata_and_links",
-        "capabilities": ["patents", "inventors", "assignees", "citations", "technology_landscape"],
+        "capabilities": ["applications", "bibliography", "status", "documents", "daily_refresh"],
+    },
+    {
+        "code": "uspto-patentsview-archive",
+        "name": "USPTO PatentsView archive",
+        "category": "patents",
+        "base_url": "https://patentsview.org/download/data-download-tables",
+        "homepage_url": "https://data.uspto.gov/support/transition-guide/patentsview",
+        "adapter": "archive",
+        "access_tier": "bulk_archive",
+        "license_summary": (
+            "Historical research tables retained for longitudinal analysis; not a live search API."
+        ),
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["historical_patents", "inventors", "assignees", "citations"],
+    },
+    {
+        "code": "epo-ops",
+        "name": "EPO Open Patent Services",
+        "category": "patents",
+        "base_url": "https://ops.epo.org/3.2/rest-services",
+        "homepage_url": "https://www.epo.org/en/searching-for-patents/data/web-services/ops",
+        "adapter": "epo_ops",
+        "access_tier": "credentialed_public_service",
+        "license_summary": "EPO OPS terms, quotas, and fair-use controls apply to programmatic patent data.",
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["bibliography", "families", "legal_status", "full_text", "images"],
     },
 ]
 
 
 def upsert_dataset(session: Session, definition: dict) -> DatasetDefinition:
-    item = session.scalar(
-        select(DatasetDefinition).where(DatasetDefinition.code == definition["code"])
-    )
+    item = session.scalar(select(DatasetDefinition).where(DatasetDefinition.code == definition["code"]))
     if item is None:
         item = DatasetDefinition(**definition)
         session.add(item)

@@ -1,0 +1,46 @@
+name: Autonomous commercial intelligence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 * * * *"
+
+concurrency:
+  group: autonomous-commercial-intelligence
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  operate:
+    if: ${{ vars.AUTONOMOUS_COMMERCIAL_ENGINE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+      INSTITUTION_DISCOVERY_ENABLED: ${{ vars.INSTITUTION_DISCOVERY_ENABLED }}
+      INSTITUTION_DISCOVERY_QUERY: ${{ vars.INSTITUTION_DISCOVERY_QUERY }}
+      PROSPECT_DISCOVERY_ENABLED: ${{ vars.PROSPECT_DISCOVERY_ENABLED }}
+      PROSPECT_DISCOVERY_FEED_URL: ${{ secrets.PROSPECT_DISCOVERY_FEED_URL }}
+      PROSPECT_DISCOVERY_TOKEN: ${{ secrets.PROSPECT_DISCOVERY_TOKEN }}
+      OUTREACH_AUTONOMOUS_ENABLED: ${{ vars.OUTREACH_AUTONOMOUS_ENABLED }}
+      OUTREACH_SEND_ENABLED: ${{ vars.OUTREACH_AUTONOMOUS_ENABLED }}
+      OUTREACH_DELIVERY_WEBHOOK_URL: ${{ secrets.OUTREACH_DELIVERY_WEBHOOK_URL }}
+      OUTREACH_DELIVERY_TOKEN: ${{ secrets.OUTREACH_DELIVERY_TOKEN }}
+      OUTREACH_SENDER_NAME: ${{ vars.OUTREACH_SENDER_NAME }}
+      OUTREACH_REPLY_TO: ${{ vars.OUTREACH_REPLY_TO }}
+      OUTREACH_POSTAL_ADDRESS: ${{ secrets.OUTREACH_POSTAL_ADDRESS }}
+      OUTREACH_UNSUBSCRIBE_BASE_URL: ${{ vars.RESEARCH_BACKEND_PUBLIC_URL }}
+      OUTREACH_UNSUBSCRIBE_SECRET: ${{ secrets.OUTREACH_UNSUBSCRIBE_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -e .
+      - run: test -n "$DATABASE_URL"
+      - run: alembic upgrade head
+      - run: python -m scripts.run_commercial_intelligence --all-enabled --limit 20

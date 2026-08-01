@@ -1,0 +1,47 @@
+name: Process client intelligence mandates
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Maximum mandates to process
+        default: "5"
+        required: false
+        type: string
+  schedule:
+    - cron: "12,42 * * * *"
+
+concurrency:
+  group: client-mandate-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      BACKEND_SERVICE_TOKEN: ${{ secrets.BACKEND_SERVICE_TOKEN }}
+      RESEARCH_KILL_SWITCH: ${{ vars.RESEARCH_KILL_SWITCH || 'true' }}
+      USPTO_ODP_API_KEY: ${{ secrets.USPTO_ODP_API_KEY }}
+      EPO_OPS_CONSUMER_KEY: ${{ secrets.EPO_OPS_CONSUMER_KEY }}
+      EPO_OPS_CONSUMER_SECRET: ${{ secrets.EPO_OPS_CONSUMER_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -e .
+      - name: Refuse an unconfigured worker
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL"
+          test "$RESEARCH_KILL_SWITCH" = "false"
+      - name: Upgrade durable schema
+        run: alembic upgrade head
+      - name: Process queued mandates
+        run: python -m scripts.run_pending_mandates --limit "${{ inputs.limit || '5' }}"

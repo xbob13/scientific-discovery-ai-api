@@ -16,7 +16,9 @@ Use `docker compose up --build` for PostgreSQL-backed development. Copy `.env.ex
 development secrets. The API requires `Authorization: Bearer <BACKEND_SERVICE_TOKEN>` for operational endpoints.
 
 The system produces research intelligence and unvalidated hypotheses. It does not provide medical advice, patentability
-opinions, autonomous publications, filings, purchases, messages, or experiments.
+opinions, autonomous publications, filings, purchases, or experiments. Commercial outreach can run without a human
+approval inbox, but remains fail-closed unless evidence, organization-domain, sender-identity, rate-limit, and signed
+unsubscribe controls all pass.
 
 ## Autonomous digital lab
 
@@ -88,8 +90,76 @@ Initial federation:
 - NIST Materials Data Repository: experimental and reference materials data;
 - PubChem: structures, identifiers, properties, hazards, and chemistry links;
 - DOE OSTI: energy and materials reports, software, and datasets;
-- USPTO PatentsView: patent, inventor, assignee, and citation intelligence.
+- USPTO Open Data Portal Patent File Wrapper: live U.S. application metadata and status;
+- EPO Open Patent Services: global bibliographic records and available claim text;
+- PatentsView archive: historical longitudinal tables only, not a live search dependency.
 
 The platform stores provider metadata by default. Payload ingestion is enabled only when provider and record-level terms
 permit it. Licensed sources such as commercial standards, handbooks, full-text journals, CSD/ICSD, and commercial patent
 analytics require separate customer-funded agreements and must not be scraped into the shared lab.
+
+## Self-service intelligence platform
+
+The API supports verified checkout activation without trusting browser-supplied payment state. A server-side commerce
+function verifies the provider session and then calls `POST /v1/subscriptions/activate` using the backend service token.
+Activation is idempotent and creates:
+
+- a token-hashed, isolated client workspace;
+- a source and export entitlement for the purchased plan;
+- an initial client topic and metered research mandate; and
+- an auditable subscription activation record.
+
+The signed Stripe webhook calls `POST /v1/subscriptions/events`. Checkout completion activates access; paid invoices
+restore it; payment failure, cancellation, and refunds update the entitlement automatically. Provider event IDs are
+stored idempotently so retries cannot duplicate lifecycle transitions.
+
+Clients can submit further bounded questions at `POST /v1/client-portal/{slug}/mandates`. The API enforces the workspace
+token, source entitlement, and rolling 30-day request allowance before accepting the job. Long-running backends begin the
+job immediately as a background task. `scripts/run_pending_mandates.py` and the `client-mandates.yml` workflow provide a
+durable recovery worker for queued jobs.
+
+Configure a unique `PORTAL_TOKEN_SIGNING_SECRET`; do not reuse the backend service token. Production workers require a
+durable PostgreSQL `PRODUCTION_DATABASE_URL`. GitHub schedule timing is best-effort, so a continuously running queue worker
+or managed scheduled job is recommended for contractual processing deadlines.
+
+## Patent intelligence
+
+`POST /v1/patents/search` federates the USPTO Open Data Portal and EPO OPS, normalizes records, retains provider
+provenance and checksums, retrieves available EPO claim text, and returns exact evidence passages, material/process/property
+signals, literature-to-patent bridges, and a transparent prior-art-pressure screen. Add `USPTO_ODP_API_KEY` and EPO OPS
+consumer credentials to activate both live providers. PatentsView is retained only as a legacy adapter for archival
+compatibility after its March 2026 migration.
+
+Patent output is research triage. It is not a legal-status, patentability, validity, infringement, or freedom-to-operate
+opinion. The application should link to the authoritative source record and use patent counsel for consequential IP
+decisions.
+
+## Autonomous commercial outreach
+
+Prospects must be backed by a public HTTPS source, a relevance signal, an organization-matched non-consumer email, and a
+documented contact basis. Eligible first touches move directly to the autonomous queue; no human approval state exists in
+the delivery path. Delivery requires all of the following:
+
+```env
+OUTREACH_AUTONOMOUS_ENABLED=true
+OUTREACH_SEND_ENABLED=true
+OUTREACH_DELIVERY_WEBHOOK_URL=https://approved-sender.example/send
+OUTREACH_DELIVERY_TOKEN=replace-with-provider-token
+OUTREACH_SENDER_NAME=Patterson Research Labs
+OUTREACH_REPLY_TO=research@your-domain.example
+OUTREACH_POSTAL_ADDRESS=complete-physical-sender-address
+OUTREACH_UNSUBSCRIBE_BASE_URL=https://your-research-api.example
+OUTREACH_UNSUBSCRIBE_SECRET=replace-with-at-least-32-random-characters
+OUTREACH_DAILY_SEND_LIMIT=20
+```
+
+Suppression immediately blocks pending messages. Every delivered body includes sender identity, reply address, physical
+address, and a signed one-click suppression URL. Provider IDs, policy holds, delivery state, and errors remain in the audit
+ledger. The operator remains responsible for applicable anti-spam, privacy, and sender rules in every recipient
+jurisdiction; these software gates are not a universal legal-compliance determination.
+
+An optional evidence-feed worker ingests researched accounts without scraping arbitrary sites. The institution worker
+uses OpenAlex authorship groups to rank universities and laboratories and retains OpenAlex/ROR provenance. Only official
+role accounts with an official collaboration page are seeded into outreach; a discovered institution is never represented
+as an existing partner. The hourly commercial workflow discovers, policy-queues, and delivers eligible messages when the
+autonomous engine variables and all sender controls are configured.

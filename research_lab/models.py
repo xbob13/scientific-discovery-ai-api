@@ -175,6 +175,21 @@ class ClientWorkspace(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class WorkspaceEntitlement(Base):
+    """Commercial and source-access policy for one isolated client workspace."""
+
+    __tablename__ = "workspace_entitlements"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("client_workspaces.id"), unique=True, index=True)
+    plan: Mapped[str] = mapped_column(String(80), default="commissioned-brief")
+    allowed_sources: Mapped[list] = mapped_column(JSON, default=list)
+    monthly_request_limit: Mapped[int] = mapped_column(Integer, default=3)
+    export_formats: Mapped[list] = mapped_column(JSON, default=lambda: ["json", "markdown"])
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    period_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ClientTopic(Base):
     __tablename__ = "client_topics"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -198,6 +213,152 @@ class IntelligenceBrief(Base):
     status: Mapped[str] = mapped_column(String(40), default="published")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("topic_id", "cycle_key"),)
+
+
+class ResearchMandate(Base):
+    """A metered, client-requested research job with an auditable result."""
+
+    __tablename__ = "research_mandates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("client_workspaces.id"), index=True)
+    topic_id: Mapped[str | None] = mapped_column(ForeignKey("client_topics.id"), index=True)
+    external_reference: Mapped[str | None] = mapped_column(String(240), unique=True)
+    title: Mapped[str] = mapped_column(String(300))
+    question: Mapped[str] = mapped_column(Text)
+    sources: Mapped[list] = mapped_column(JSON, default=list)
+    requested_outputs: Mapped[list] = mapped_column(JSON, default=list)
+    constraints: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=50)
+    result: Mapped[dict | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SubscriptionActivation(Base):
+    """Idempotent record linking a verified commerce session to a workspace."""
+
+    __tablename__ = "subscription_activations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    provider: Mapped[str] = mapped_column(String(40), default="stripe")
+    external_session_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    external_customer_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    external_subscription_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("client_workspaces.id"), index=True)
+    plan: Mapped[str] = mapped_column(String(80))
+    contact_email: Mapped[str] = mapped_column(String(320))
+    organization: Mapped[str] = mapped_column(String(240))
+    status: Mapped[str] = mapped_column(String(40), default="active", index=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CommerceEvent(Base):
+    """Idempotent, minimal audit record for signed payment-provider events."""
+
+    __tablename__ = "commerce_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    provider: Mapped[str] = mapped_column(String(40), default="stripe")
+    external_event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(120), index=True)
+    external_customer_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    external_subscription_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    external_session_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(40), default="processed")
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PatentDocument(Base):
+    """Normalized patent record retained with provider provenance and legal-status caveats."""
+
+    __tablename__ = "patent_documents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    provider: Mapped[str] = mapped_column(String(80), index=True)
+    publication_number: Mapped[str] = mapped_column(String(120), index=True)
+    application_number: Mapped[str | None] = mapped_column(String(120), index=True)
+    family_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    jurisdiction: Mapped[str | None] = mapped_column(String(20), index=True)
+    title: Mapped[str] = mapped_column(Text)
+    abstract: Mapped[str | None] = mapped_column(Text)
+    claims_excerpt: Mapped[str | None] = mapped_column(Text)
+    inventors: Mapped[list] = mapped_column(JSON, default=list)
+    assignees: Mapped[list] = mapped_column(JSON, default=list)
+    cpc_codes: Mapped[list] = mapped_column(JSON, default=list)
+    ipc_codes: Mapped[list] = mapped_column(JSON, default=list)
+    priority_date: Mapped[str | None] = mapped_column(String(40))
+    filing_date: Mapped[str | None] = mapped_column(String(40))
+    publication_date: Mapped[str | None] = mapped_column(String(40))
+    legal_status: Mapped[str | None] = mapped_column(String(120))
+    source_url: Mapped[str] = mapped_column(String(1000))
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    raw: Mapped[dict] = mapped_column(JSON)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    __table_args__ = (UniqueConstraint("provider", "publication_number"),)
+
+
+class ProspectAccount(Base):
+    """Evidence-backed prospect that must pass autonomous contact policy before delivery."""
+
+    __tablename__ = "prospect_accounts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(240), index=True)
+    domain: Mapped[str | None] = mapped_column(String(300), index=True)
+    target_type: Mapped[str] = mapped_column(String(80), default="company")
+    relevance_score: Mapped[float] = mapped_column(Float, default=0)
+    evidence_signals: Mapped[list] = mapped_column(JSON, default=list)
+    contact_name: Mapped[str | None] = mapped_column(String(240))
+    contact_email: Mapped[str | None] = mapped_column(String(320))
+    contact_basis: Mapped[str | None] = mapped_column(String(240))
+    source_url: Mapped[str | None] = mapped_column(String(1000))
+    status: Mapped[str] = mapped_column(String(40), default="researched", index=True)
+    suppressed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OutreachMessage(Base):
+    """Policy-gated autonomous outreach with delivery and suppression audit state."""
+
+    __tablename__ = "outreach_messages"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    prospect_id: Mapped[str] = mapped_column(ForeignKey("prospect_accounts.id"), index=True)
+    subject: Mapped[str] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(40), default="draft", index=True)
+    approved_by: Mapped[str | None] = mapped_column(String(240))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    provider_message_id: Mapped[str | None] = mapped_column(String(240))
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ResearchInstitution(Base):
+    """Research organization discovered from public scholarly and partnership evidence."""
+
+    __tablename__ = "research_institutions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    openalex_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    ror_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    name: Mapped[str] = mapped_column(String(300), index=True)
+    country_code: Mapped[str | None] = mapped_column(String(12), index=True)
+    institution_type: Mapped[str | None] = mapped_column(String(80))
+    homepage_url: Mapped[str | None] = mapped_column(String(1000))
+    collaboration_url: Mapped[str | None] = mapped_column(String(1000))
+    contact_email: Mapped[str | None] = mapped_column(String(320))
+    contact_basis: Mapped[str | None] = mapped_column(String(300))
+    works_count: Mapped[int] = mapped_column(Integer, default=0)
+    relevance_score: Mapped[float] = mapped_column(Float, default=0)
+    discovery_query: Mapped[str] = mapped_column(Text)
+    source_urls: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(40), default="discovered", index=True)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ComputeRun(Base):
