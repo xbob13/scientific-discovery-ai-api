@@ -94,16 +94,30 @@ CORE_DATASETS = [
         "capabilities": ["energy_research", "technical_reports", "software", "datasets"],
     },
     {
-        "code": "uspto-patentsview",
-        "name": "USPTO PatentsView",
+        "code": "uspto-odp-pfw",
+        "name": "USPTO Open Data Portal Patent File Wrapper",
         "category": "patents",
-        "base_url": "https://search.patentsview.org",
-        "homepage_url": "https://patentsview.org",
-        "adapter": "patentsview",
-        "access_tier": "public",
-        "license_summary": "Research-grade USPTO-derived data; not the official patent record.",
+        "base_url": "https://api.uspto.gov/api/v1/patent/applications",
+        "homepage_url": "https://data.uspto.gov/apis/patent-file-wrapper/search",
+        "adapter": "uspto_odp",
+        "access_tier": "api_key",
+        "license_summary": "Official USPTO application data; API key, terms, and record-level limits apply.",
         "redistribution_policy": "metadata_and_links",
-        "capabilities": ["patents", "inventors", "assignees", "citations", "technology_landscape"],
+        "capabilities": ["applications", "bibliography", "status", "documents", "daily_refresh"],
+    },
+    {
+        "code": "uspto-patentsview-archive",
+        "name": "USPTO PatentsView archive",
+        "category": "patents",
+        "base_url": "https://patentsview.org/download/data-download-tables",
+        "homepage_url": "https://data.uspto.gov/support/transition-guide/patentsview",
+        "adapter": "archive",
+        "access_tier": "bulk_archive",
+        "license_summary": (
+            "Historical research tables retained for longitudinal analysis; not a live search API."
+        ),
+        "redistribution_policy": "metadata_and_links",
+        "capabilities": ["historical_patents", "inventors", "assignees", "citations"],
     },
     {
         "code": "epo-ops",
@@ -121,9 +135,7 @@ CORE_DATASETS = [
 
 
 def upsert_dataset(session: Session, definition: dict) -> DatasetDefinition:
-    item = session.scalar(
-        select(DatasetDefinition).where(DatasetDefinition.code == definition["code"])
-    )
+    item = session.scalar(select(DatasetDefinition).where(DatasetDefinition.code == definition["code"]))
     if item is None:
         item = DatasetDefinition(**definition)
         session.add(item)
