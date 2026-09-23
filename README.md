@@ -163,3 +163,6 @@ uses OpenAlex authorship groups to rank universities and laboratories and retain
 role accounts with an official collaboration page are seeded into outreach; a discovered institution is never represented
 as an existing partner. The hourly commercial workflow discovers, policy-queues, and delivers eligible messages when the
 autonomous engine variables and all sender controls are configured.
+
+
+<!-- CI verification marker -->
