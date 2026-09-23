@@ -42,3 +42,20 @@ async def test_non_retryable_failure_is_immediate():
         with pytest.raises(httpx.HTTPStatusError):
             await StubAdapter(client).get_json("https://example.test/data")
     assert attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_network_failure_retries_and_recovers():
+    attempts = 0
+
+    def handler(request: httpx.Request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("temporary DNS failure", request=request)
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        payload = await StubAdapter(client).get_json("https://example.test/data")
+    assert payload == {"ok": True}
+    assert attempts == 2
