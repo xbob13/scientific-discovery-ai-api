@@ -95,6 +95,20 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
                     "detail": str(exc)[:300],
                 }
 
+    if not harvested_work_ids:
+        output["candidates"] = []
+        output["limitations"].append(
+            "No source returned usable records in this cycle; existing corpus was not used to generate new hypotheses."
+        )
+        output["completed_at"] = datetime.now(UTC).isoformat()
+        output["client_briefs_published"] = 0
+        complete = all("error" not in value for value in output["sources"].values())
+        job.status = "succeeded" if complete else "partial"
+        job.output = output
+        job.finished_at = datetime.now(UTC)
+        session.commit()
+        return output
+
     documents = load_documents(session)
     proposals = LiteratureCartographer().propose(
         documents,
