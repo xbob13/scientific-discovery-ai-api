@@ -12,8 +12,18 @@ async def sync() -> dict:
     with SessionLocal() as session:
         core = seed_dataset_registry(session)
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            optimade = await discover_optimade_providers(session, client)
-    return {"core_datasets": core, "optimade_providers": optimade}
+            try:
+                optimade = await discover_optimade_providers(session, client)
+                optimade_error = None
+            except Exception as exc:
+                session.rollback()
+                optimade = 0
+                optimade_error = f"{type(exc).__name__}: {str(exc)[:300]}"
+    return {
+        "core_datasets": core,
+        "optimade_providers": optimade,
+        "optimade_error": optimade_error,
+    }
 
 
 def main() -> None:
