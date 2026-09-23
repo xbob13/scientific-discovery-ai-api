@@ -86,6 +86,10 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
                 output["new_versions"] += source_new
             except Exception as exc:
                 session.rollback()
+                source = session.scalar(select(Source).where(Source.name == source_name))
+                if source is not None:
+                    source.last_error = f"{type(exc).__name__}: {str(exc)[:500]}"
+                    session.commit()
                 output["sources"][source_name] = {
                     "error": type(exc).__name__,
                     "detail": str(exc)[:300],
