@@ -4,7 +4,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from .models import CandidateAssessment, ConnectionCandidate, Work, WorkVersion
 
@@ -173,17 +173,19 @@ class LiteratureCartographer:
 
 
 def load_documents(session: Session, limit: int = 200) -> list[ResearchDocument]:
+    candidate_version = aliased(WorkVersion)
     latest_version_id = (
-        select(WorkVersion.id)
+        select(candidate_version.id)
         .where(
-            WorkVersion.work_id == Work.id,
-            WorkVersion.abstract.is_not(None),
+            candidate_version.work_id == Work.id,
+            candidate_version.abstract.is_not(None),
         )
         .order_by(
-            WorkVersion.published_at.desc().nullslast(),
-            WorkVersion.id.desc(),
+            candidate_version.published_at.desc().nullslast(),
+            candidate_version.id.desc(),
         )
         .limit(1)
+        .correlate(Work)
         .scalar_subquery()
     )
     rows = session.execute(
