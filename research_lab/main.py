@@ -284,9 +284,18 @@ def data_sources(session: Session = Depends(get_session)):
 @app.post("/v1/data-sources/sync", dependencies=[Depends(require_service_token)])
 async def sync_data_sources(session: Session = Depends(get_session)):
     core = seed_dataset_registry(session)
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        providers = await discover_optimade_providers(session, client)
-    return {"core_datasets": core, "optimade_providers": providers}
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            providers = await discover_optimade_providers(session, client)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("OPTIMADE provider discovery unavailable", exc_info=True)
+        return {
+            "core_datasets": core,
+            "optimade_providers": 0,
+            "partial": True,
+            "warning": f"{type(exc).__name__}: {str(exc)[:300]}",
+        }
+    return {"core_datasets": core, "optimade_providers": providers, "partial": False}
 
 
 @app.post("/v1/client-workspaces", dependencies=[Depends(require_service_token)])
