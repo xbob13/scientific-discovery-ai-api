@@ -98,7 +98,8 @@ async def run_cycle(session: Session, cycle: ResearchCycle) -> dict:
     if not harvested_work_ids:
         output["candidates"] = []
         output["limitations"].append(
-            "No source returned usable records in this cycle; existing corpus was not used to generate new hypotheses."
+            "No source returned usable records in this cycle; "
+            "existing corpus was not used to generate new hypotheses."
         )
         output["completed_at"] = datetime.now(UTC).isoformat()
         output["client_briefs_published"] = 0

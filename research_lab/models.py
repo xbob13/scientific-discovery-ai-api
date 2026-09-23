@@ -23,7 +23,7 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class PublicationState(str, enum.Enum):
+class PublicationState(enum.StrEnum):
     PREPRINT = "preprint"
     PUBLISHED = "published"
     CORRECTED = "corrected"
