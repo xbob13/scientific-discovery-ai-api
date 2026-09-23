@@ -93,6 +93,8 @@ class LiteratureCartographer:
         proposals: list[ProposedConnection] = []
         for index, left in enumerate(documents):
             for right in documents[index + 1 :]:
+                if left.work_id == right.work_id:
+                    continue
                 if focus_work_ids and not {left.work_id, right.work_id} & focus_work_ids:
                     continue
                 shared = document_terms[left.work_id] & document_terms[right.work_id]
@@ -171,10 +173,22 @@ class LiteratureCartographer:
 
 
 def load_documents(session: Session, limit: int = 200) -> list[ResearchDocument]:
+    latest_version_id = (
+        select(WorkVersion.id)
+        .where(
+            WorkVersion.work_id == Work.id,
+            WorkVersion.abstract.is_not(None),
+        )
+        .order_by(
+            WorkVersion.published_at.desc().nullslast(),
+            WorkVersion.id.desc(),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
     rows = session.execute(
         select(Work, WorkVersion)
-        .join(WorkVersion, WorkVersion.work_id == Work.id)
-        .where(WorkVersion.abstract.is_not(None))
+        .join(WorkVersion, WorkVersion.id == latest_version_id)
         .order_by(Work.created_at.desc())
         .limit(limit)
     )

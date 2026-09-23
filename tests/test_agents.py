@@ -2,6 +2,7 @@ from research_lab.agents import (
     LiteratureCartographer,
     ResearchDocument,
     evidence_excerpt,
+    load_documents,
     persist_connections,
 )
 from research_lab.models import JobRun, PublicationState, Work, WorkVersion
@@ -49,6 +50,47 @@ def test_cartographer_requires_current_cycle_document_when_focus_is_supplied():
         "current" in {proposal.left_id, proposal.right_id}
         for proposal in proposals
     )
+
+
+def test_cartographer_never_connects_two_versions_of_the_same_work(session):
+    work = Work(title="Graphene sensor", normalized_title="graphene sensor")
+    other = Work(title="Protein adsorption", normalized_title="protein adsorption")
+    session.add_all([work, other])
+    session.flush()
+    session.add_all(
+        [
+            WorkVersion(
+                work_id=work.id,
+                source_snapshot_id="snapshot-old",
+                publication_state=PublicationState.PUBLISHED,
+                peer_reviewed=True,
+                abstract="A graphene surface detects protein binding.",
+                source_url="https://example.org/old",
+            ),
+            WorkVersion(
+                work_id=work.id,
+                source_snapshot_id="snapshot-new",
+                publication_state=PublicationState.PUBLISHED,
+                peer_reviewed=True,
+                abstract="A graphene surface detects protein binding with improved conductivity.",
+                source_url="https://example.org/new",
+            ),
+            WorkVersion(
+                work_id=other.id,
+                source_snapshot_id="snapshot-other",
+                publication_state=PublicationState.PUBLISHED,
+                peer_reviewed=True,
+                abstract="Protein binding changes graphene conductivity.",
+                source_url="https://example.org/other",
+            ),
+        ]
+    )
+    session.commit()
+
+    documents = load_documents(session)
+    assert len([item for item in documents if item.work_id == work.id]) == 1
+    proposals = LiteratureCartographer().propose(documents)
+    assert all(proposal.left_id != proposal.right_id for proposal in proposals)
 
 
 def test_new_job_attempt_counter_can_be_incremented_before_flush():
